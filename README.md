@@ -46,6 +46,12 @@ Enable YOLO-based detection (requires `ultralytics`):
 venv\Scripts\python.exe -m src.main --input_folder in --output_folder out --use_yolo --yolo_model n
 ```
 
+Skip preview generation (only export JSON data, much faster):
+
+```powershell
+venv\Scripts\python.exe -m src.main --input_folder in --output_folder out --skip-overlay --skip-mocap
+```
+
 Flags summary
 - `--input_folder` (required): folder containing video files (.mp4, .mov, .avi, .mkv)
 - `--output_folder` (required): base output path (per-video folders are created)
@@ -54,6 +60,8 @@ Flags summary
 - `--min_tracking_confidence` (default: 0.5): MediaPipe tracking threshold
 - `--use_yolo`: enable YOLOv8 object detection for equipment localization
 - `--yolo_model` (n|s|m|l|x): YOLO model size (n=nano fastest)
+- `--skip-overlay`: skip generating overlay preview video (saves time)
+- `--skip-mocap`: skip generating mocap preview video (saves time)
 - `--quiet`: suppress verbose progress output
 
 Outputs

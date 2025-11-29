@@ -19,6 +19,7 @@ from .pose_estimator import PoseEstimator, joints_to_dict
 from .equipment_detector import EquipmentDetector
 from .exporter import DataExporter
 from .visualizer import Visualizer
+from tqdm import tqdm
 
 
 def process_video(
@@ -29,7 +30,9 @@ def process_video(
     exporter: DataExporter,
     visualizer: Visualizer,
     frame_step: int = 1,
-    verbose: bool = True
+    verbose: bool = True,
+    skip_overlay: bool = False,
+    skip_mocap: bool = False
 ) -> Dict[str, str]:
     """
     Process a single video through the full pipeline.
@@ -43,6 +46,8 @@ def process_video(
         visualizer: Visualizer instance.
         frame_step: Frame downsampling factor.
         verbose: Whether to print progress.
+        skip_overlay: Skip generating overlay preview video.
+        skip_mocap: Skip generating mocap preview video.
         
     Returns:
         Dictionary of output file paths.
@@ -70,21 +75,21 @@ def process_video(
     frames_with_poses: List[Tuple[int, np.ndarray, Dict]] = []
     
     frame_count = 0
-    for frame_index, frame in iterate_frames(video_path, frame_step):
+    # Use tqdm to show per-video frame progress when verbose
+    total_frames_to_process = max(1, (metadata.total_frames + frame_step - 1) // frame_step)
+    frame_iter = iterate_frames(video_path, frame_step)
+    for frame_index, frame in tqdm(frame_iter, total=total_frames_to_process, desc=f"Frames {video_basename}", unit="frame", disable=not verbose):
         # Extract pose
         joints = pose_estimator.get_pose_for_frame(frame)
         joints_dict = joints_to_dict(joints)
-        
+
         pose_frames.append({
             "frame_index": frame_index,
             "joints": joints_dict
         })
-        
+
         frames_with_poses.append((frame_index, frame, joints_dict))
         frame_count += 1
-        
-        if verbose and frame_count % 50 == 0:
-            print(f"  Processed {frame_count} frames...")
     
     if verbose:
         print(f"  Pose extraction complete: {frame_count} frames")
@@ -107,30 +112,38 @@ def process_video(
     exporter.export_equipment(video_output_folder, equipment_dict, metadata_dict)
     
     # Create visualizations
-    if verbose:
-        print("  Creating overlay preview...")
-    
     pose_data = {
         "metadata": metadata_dict,
         "frames": pose_frames
     }
     
-    visualizer.create_overlay_video(
-        video_path,
-        pose_data,
-        equipment_dict,
-        output_paths["overlay_video"],
-        frame_step
-    )
+    if not skip_overlay:
+        if verbose:
+            print("  Creating overlay preview...")
+        
+        visualizer.create_overlay_video(
+            video_path,
+            pose_data,
+            equipment_dict,
+            output_paths["overlay_video"],
+            frame_step,
+            show_progress=verbose
+        )
+    elif verbose:
+        print("  Skipping overlay preview (--skip-overlay)")
     
-    if verbose:
-        print("  Creating mocap preview...")
-    
-    visualizer.create_mocap_video(
-        pose_data,
-        equipment_dict,
-        output_paths["mocap_video"]
-    )
+    if not skip_mocap:
+        if verbose:
+            print("  Creating mocap preview...")
+        
+        visualizer.create_mocap_video(
+            pose_data,
+            equipment_dict,
+            output_paths["mocap_video"],
+            show_progress=verbose
+        )
+    elif verbose:
+        print("  Skipping mocap preview (--skip-mocap)")
     
     if verbose:
         print(f"  Output folder: {video_output_folder}")
@@ -196,6 +209,16 @@ def main(args: List[str] = None) -> int:
         choices=["n", "s", "m", "l", "x"],
         help="YOLO model size: n(ano), s(mall), m(edium), l(arge), x(large). Default: n"
     )
+    parser.add_argument(
+        "--skip-overlay",
+        action="store_true",
+        help="Skip generating overlay preview video (saves processing time)."
+    )
+    parser.add_argument(
+        "--skip-mocap",
+        action="store_true",
+        help="Skip generating mocap preview video (saves processing time)."
+    )
     
     parsed_args = parser.parse_args(args)
     
@@ -235,9 +258,9 @@ def main(args: List[str] = None) -> int:
     exporter = DataExporter(parsed_args.output_folder)
     visualizer = Visualizer()
     
-    # Process each video
+    # Process each video (show overall progress)
     results = []
-    for video_path, metadata in video_loader:
+    for video_path, metadata in tqdm(video_loader, total=len(video_loader), desc="Videos", disable=not verbose):
         try:
             output_paths = process_video(
                 video_path=video_path,
@@ -247,7 +270,9 @@ def main(args: List[str] = None) -> int:
                 exporter=exporter,
                 visualizer=visualizer,
                 frame_step=parsed_args.frame_step,
-                verbose=verbose
+                verbose=verbose,
+                skip_overlay=parsed_args.skip_overlay,
+                skip_mocap=parsed_args.skip_mocap
             )
             results.append((video_path, output_paths, None))
         except Exception as e:

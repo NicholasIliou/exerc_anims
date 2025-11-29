@@ -10,6 +10,7 @@ import json
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 
 # Color scheme (BGR format for OpenCV)
@@ -269,6 +270,7 @@ class Visualizer:
         equipment_data: Dict[str, Any],
         output_path: str,
         frame_step: int = 1
+        , show_progress: bool = False
     ) -> None:
         """
         Create overlay preview video.
@@ -298,7 +300,10 @@ class Visualizer:
         equipment_frames = {d["frame_index"]: d for d in equipment_data.get("detections", [])}
         equipment_type = equipment_data.get("equipment_type", "unknown")
         
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_steps = max(1, total_frames // frame_step)
         frame_index = 0
+        pbar = tqdm(total=total_steps, desc="Overlay frames", unit="frame", disable=not show_progress)
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -329,6 +334,8 @@ class Visualizer:
             
             out.write(frame)
             frame_index += 1
+            pbar.update(1)
+        pbar.close()
         
         cap.release()
         out.release()
@@ -340,6 +347,7 @@ class Visualizer:
         output_path: str,
         fps: Optional[float] = None,
         frame_size: Optional[Tuple[int, int]] = None
+        , show_progress: bool = False
     ) -> None:
         """
         Create standalone mocap preview video.
@@ -371,7 +379,9 @@ class Visualizer:
         equipment_type = equipment_data.get("equipment_type", "unknown")
         equipment_frames = {d["frame_index"]: d for d in equipment_data.get("detections", [])}
         
-        for frame_data in pose_data.get("frames", []):
+        frames_list = pose_data.get("frames", [])
+        pbar = tqdm(total=len(frames_list), desc="Mocap frames", unit="frame", disable=not show_progress)
+        for frame_data in frames_list:
             frame_index = frame_data["frame_index"]
             joints = frame_data.get("joints", {})
             
@@ -402,6 +412,8 @@ class Visualizer:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLORS["text"], 2)
             
             out.write(frame)
+            pbar.update(1)
+        pbar.close()
         
         out.release()
 

@@ -8,3 +8,4 @@ mediapipe>=0.10.0
 # Optional: YOLO-based equipment detection (run with --use_yolo flag)
 # Install with: pip install ultralytics
 # ultralytics>=8.0.0
+tqdm>=4.65.0
