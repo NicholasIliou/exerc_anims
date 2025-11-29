@@ -71,8 +71,15 @@ Reference: `exercises.txt` contains 38 indexed exercises with equipment in paren
 ## CLI Usage
 
 ```bash
-# Install dependencies
+# Install core dependencies (CPU-only)
 pip install -r requirements.txt
+
+# Optional: YOLO detection (CPU)
+pip install ultralytics
+
+# Optional: GPU acceleration (NVIDIA CUDA) - replace cu124 with your CUDA version
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
 # Basic run (filename-based equipment detection)
 python -m src.main --input_folder path/to/videos --output_folder path/to/output --frame_step 3

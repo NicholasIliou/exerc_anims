@@ -1,11 +1,26 @@
 # Exercise Animation Pipeline - Dependencies
+#
+# INSTALL OPTIONS:
+#
+# 1. CPU-only (default, works everywhere):
+#    pip install -r requirements.txt
+#
+# 2. GPU acceleration (NVIDIA CUDA):
+#    pip install -r requirements.txt
+#    pip install ultralytics
+#    pip uninstall -y torch torchvision
+#    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#
+#    (Use cu118 or cu121 if cu124 doesn't work for your CUDA version)
 
-# Core dependencies
+# Core dependencies (CPU-only, always installed)
 opencv-python>=4.8.0
 numpy>=1.24.0
 mediapipe>=0.10.0
-
-# Optional: YOLO-based equipment detection (run with --use_yolo flag)
-# Install with: pip install ultralytics
-# ultralytics>=8.0.0
 tqdm>=4.65.0
+
+# Optional: YOLO-based equipment detection
+# Uncomment to install (will pull CPU PyTorch by default):
+# ultralytics>=8.0.0
+#
+# For GPU: after installing ultralytics, replace torch with CUDA version (see above)

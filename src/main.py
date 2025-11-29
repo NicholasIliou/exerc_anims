@@ -340,7 +340,47 @@ def main(args: List[str] = None) -> int:
     # Process videos (parallel or sequential)
     results = []
     
-    if parsed_args.workers > 1 and len(video_loader) > 1:
+    if parsed_args.workers > 1 and len(video_loader) > 1 and parsed_args.use_yolo and device == "cuda":
+        # GPU Queue mode: one GPU worker, multiple CPU workers for pose/IO
+        # This is optimal for single-GPU setups with YOLO
+        from .gpu_worker import GPUWorkerPool, process_video_with_gpu_queue
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        if verbose:
+            print(f"\n[GPU Queue Mode] Processing {len(video_loader)} video(s)")
+            print(f"  GPU worker: 1 (YOLO on {device})")
+            print(f"  CPU workers: {parsed_args.workers} (pose estimation + I/O)")
+        
+        # Collect video paths
+        video_paths = [vp for vp, _ in video_loader]
+        
+        # Start GPU worker pool
+        with GPUWorkerPool(
+            model_size=parsed_args.yolo_model,
+            weights_path=parsed_args.yolo_weights,
+            device=device,
+        ) as gpu_pool:
+            # Process videos sequentially but efficiently using GPU queue
+            # (parallel CPU processing happens inside process_video_with_gpu_queue)
+            for video_path in tqdm(video_paths, desc="Videos", disable=not verbose):
+                try:
+                    output_paths = process_video_with_gpu_queue(
+                        video_path=video_path,
+                        output_folder=parsed_args.output_folder,
+                        gpu_pool=gpu_pool,
+                        frame_step=parsed_args.frame_step,
+                        min_detection_confidence=parsed_args.min_detection_confidence,
+                        min_tracking_confidence=parsed_args.min_tracking_confidence,
+                        skip_overlay=parsed_args.skip_overlay,
+                        skip_mocap=parsed_args.skip_mocap,
+                        verbose=verbose,
+                    )
+                    results.append((video_path, output_paths, None))
+                except Exception as e:
+                    print(f"Error processing {video_path}: {e}", file=sys.stderr)
+                    results.append((video_path, None, str(e)))
+    
+    elif parsed_args.workers > 1 and len(video_loader) > 1:
         # Parallel processing using multiprocessing
         from concurrent.futures import ProcessPoolExecutor, as_completed
         import multiprocessing

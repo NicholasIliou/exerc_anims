@@ -17,20 +17,39 @@ python -m venv venv
 venv\Scripts\Activate.ps1
 ```
 
-2. Install core dependencies:
+2. Install core dependencies (CPU-only, works everywhere):
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Optional: To enable YOLO-based equipment detection (more accurate, slower), install `ultralytics`:
+### Optional: YOLO Equipment Detection (CPU)
 
 ```powershell
 pip install ultralytics
 ```
 
-Notes:
-- First-time YOLO usage will download pretrained weights (e.g., `yolov8n.pt`) unless you provide local weights.
+### Optional: GPU Acceleration (NVIDIA CUDA)
+
+For significantly faster YOLO inference on NVIDIA GPUs:
+
+```powershell
+# Install ultralytics first
+pip install ultralytics
+
+# Replace CPU PyTorch with CUDA version (cu124 for CUDA 12.4)
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+> **Note**: Use `cu121` or `cu118` if your NVIDIA driver doesn't support CUDA 12.4.  
+> Check your CUDA version with `nvidia-smi` (shows "CUDA Version" in top right).  
+> See https://pytorch.org/get-started/locally for the exact command for your setup.
+
+Verify GPU is working:
+```powershell
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+```
 
 Running the pipeline
 

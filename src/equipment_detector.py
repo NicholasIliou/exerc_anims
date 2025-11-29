@@ -458,3 +458,49 @@ class EquipmentDetector:
 def get_equipment_types() -> List[str]:
     """Return the list of supported equipment types."""
     return EQUIPMENT_TYPES.copy()
+
+
+def compute_anchor_points_from_hands_static(
+    joints: Dict,
+    equipment_type: str,
+    frame_index: int
+) -> List[AnchorPoint]:
+    """
+    Compute equipment anchor points based on hand positions (static function).
+    
+    This is a module-level function that can be called without an EquipmentDetector
+    instance, useful for the GPU worker queue pattern.
+    
+    Args:
+        joints: Dictionary of joint positions from pose estimation.
+        equipment_type: Type of equipment being used.
+        frame_index: Frame index for context.
+        
+    Returns:
+        List of anchor points.
+    """
+    anchors = []
+    
+    # For all equipment types that involve hand grips, track wrist positions
+    if equipment_type in ["barbell", "dumbbell", "kettlebell", "bodyweight", "unknown"]:
+        # Use wrist positions as grip anchor points
+        left_wrist = joints.get("left_wrist", {})
+        right_wrist = joints.get("right_wrist", {})
+        
+        if left_wrist.get("x") is not None and left_wrist.get("confidence", 0.0) > 0.3:
+            anchors.append(AnchorPoint(
+                x=left_wrist["x"],
+                y=left_wrist["y"],
+                name="left_grip",
+                confidence=left_wrist.get("confidence", 0.0)
+            ))
+        
+        if right_wrist.get("x") is not None and right_wrist.get("confidence", 0.0) > 0.3:
+            anchors.append(AnchorPoint(
+                x=right_wrist["x"],
+                y=right_wrist["y"],
+                name="right_grip",
+                confidence=right_wrist.get("confidence", 0.0)
+            ))
+    
+    return anchors
