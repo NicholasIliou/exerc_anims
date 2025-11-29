@@ -89,7 +89,14 @@ python -m src.main --input_folder path/to/videos --output_folder path/to/output 
 #   --min_tracking_confidence F     Pose tracking threshold (default: 0.5)
 #   --use_yolo                      Enable YOLO-based equipment detection
 #   --yolo_model {n,s,m,l,x}        YOLO model size (n=nano/fastest, x=xlarge/best)
+#   --yolo_weights PATH             Path to local YOLO weights (avoids network download)
+#   --device {auto,cuda,cpu}        Compute device (auto=GPU if available)
+#   --workers N                     Parallel workers for multi-video processing
 #   --skip-overlay                  Skip generating overlay preview video
 #   --skip-mocap                    Skip generating mocap preview video
 #   --quiet                         Suppress progress output
+
+# Programmatic API (for integration into larger projects)
+from src import run_pipeline, detect_device
+result = run_pipeline("in/", "out/", use_yolo=True, device="auto")
 ```

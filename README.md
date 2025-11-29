@@ -60,6 +60,9 @@ Flags summary
 - `--min_tracking_confidence` (default: 0.5): MediaPipe tracking threshold
 - `--use_yolo`: enable YOLOv8 object detection for equipment localization
 - `--yolo_model` (n|s|m|l|x): YOLO model size (n=nano fastest)
+- `--yolo_weights`: path to local YOLO weights file (avoids network download)
+- `--device` (auto|cuda|cpu): compute device, auto uses GPU if available
+- `--workers` (default: 1): parallel workers for multi-video processing
 - `--skip-overlay`: skip generating overlay preview video (saves time)
 - `--skip-mocap`: skip generating mocap preview video (saves time)
 - `--quiet`: suppress verbose progress output
@@ -75,8 +78,38 @@ Privacy & Offline Guidance
 - Inference is local by default: frames are processed in-process and outputs are written locally.
 - The only network activity the pipeline may perform is downloading YOLO model weights on first use when `--use_yolo` is enabled.
 - To guarantee no network access:
-  - Install `ultralytics` and download `yolov8*.pt` weights beforehand on another machine and copy them into the project.
-  - Run the pipeline offline or modify `src/equipment_detector.py` to load weights from a local path (I can add a `--yolo_weights` flag on request).
+  - Use `--yolo_weights path/to/yolov8n.pt` to load weights from a local file.
+  - Download weights beforehand: `pip install ultralytics && python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"`
+
+GPU Acceleration
+- Use `--device cuda` to force GPU usage (requires CUDA + PyTorch with CUDA support).
+- `--device auto` (default) will use GPU if available, otherwise CPU.
+- YOLO equipment detection automatically uses the selected device.
+- MediaPipe pose estimation uses TensorFlow Lite (CPU by default).
+
+Parallel Processing
+- Use `--workers N` to process multiple videos in parallel (each worker initializes its own models).
+- Recommended for CPU-only setups: `--workers 4` (adjust based on CPU cores).
+- For GPU setups: keep `--workers 1` to avoid GPU memory conflicts, or use multiple GPUs.
+
+Programmatic API
+```python
+from src import run_pipeline, detect_device
+
+# Auto-detect GPU/CPU
+device = detect_device("auto")  # Returns "cuda" or "cpu"
+
+# Run pipeline programmatically
+result = run_pipeline(
+    input_path="in/squat.mp4",
+    output_folder="out",
+    frame_step=2,
+    use_yolo=True,
+    device=device,
+    skip_overlay=True,
+)
+print(f"Processed {result['videos_processed']} videos on {result['device']}")
+```
 
 Developer notes
 - Pose estimation is implemented using MediaPipe (`src/pose_estimator.py`). Joints are normalized (0-1) in `pose.json`.

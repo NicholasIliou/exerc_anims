@@ -144,7 +144,13 @@ class EquipmentDetector:
         # result.equipment_type is one of EQUIPMENT_TYPES
     """
     
-    def __init__(self, use_detection_model: bool = False, model_size: str = "n"):
+    def __init__(
+        self, 
+        use_detection_model: bool = False, 
+        model_size: str = "n",
+        weights_path: str = None,
+        device: str = "auto"
+    ):
         """
         Initialize the equipment detector.
         
@@ -153,9 +159,13 @@ class EquipmentDetector:
                                 If False, only classification is performed.
             model_size: YOLO model size (n=nano, s=small, m=medium, l=large, x=xlarge).
                        Nano is fastest but less accurate.
+            weights_path: Path to local YOLO weights file. If None, downloads from hub.
+            device: Compute device - "auto", "cuda", or "cpu".
+                   "auto" will use CUDA if available, else CPU.
         """
         self.use_detection_model = use_detection_model
         self._detection_model = None
+        self.device = self._resolve_device(device)
         
         if use_detection_model:
             if not YOLO_AVAILABLE:
@@ -164,9 +174,23 @@ class EquipmentDetector:
                 self.use_detection_model = False
             else:
                 try:
-                    # Load YOLOv8 model (will download on first use)
-                    self._detection_model = YOLO(f"yolov8{model_size}.pt")
-                    print(f"Loaded YOLOv8{model_size} model for equipment detection")
+                    # Determine weights path
+                    if weights_path:
+                        model_path = weights_path
+                        if not Path(weights_path).exists():
+                            raise FileNotFoundError(f"YOLO weights not found: {weights_path}")
+                    else:
+                        model_path = f"yolov8{model_size}.pt"
+                    
+                    # Load YOLOv8 model
+                    self._detection_model = YOLO(model_path)
+                    
+                    # Set device for inference
+                    if self.device == "cuda":
+                        print(f"Loaded YOLOv8 model on GPU (CUDA)")
+                    else:
+                        print(f"Loaded YOLOv8 model on CPU")
+                        
                 except Exception as e:
                     print(f"Warning: Failed to load YOLO model: {e}")
                     print("Falling back to filename-only detection.")
@@ -182,6 +206,23 @@ class EquipmentDetector:
             "bodyweight": ["bodyweight", "bw", "pullup", "pull up", "pushup", 
                           "push up", "dip", "plank", "hiking"]
         }
+    
+    def _resolve_device(self, device: str) -> str:
+        """Resolve device string to actual device."""
+        if device == "cpu":
+            return "cpu"
+        
+        # Check CUDA availability
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda" if device in ("auto", "cuda") else "cpu"
+        except ImportError:
+            pass
+        
+        if device == "cuda":
+            print("Warning: CUDA requested but not available for YOLO. Using CPU.")
+        return "cpu"
     
     def classify_equipment_for_video(
         self, 
@@ -235,8 +276,8 @@ class EquipmentDetector:
         sample_frames = frames[:min(10, len(frames))]
         
         for frame in sample_frames:
-            # Run YOLO detection
-            results = self._detection_model(frame, verbose=False)
+            # Run YOLO detection on configured device
+            results = self._detection_model(frame, verbose=False, device=self.device)
             
             if len(results) > 0 and len(results[0].boxes) > 0:
                 # Check detected classes
@@ -289,8 +330,8 @@ class EquipmentDetector:
         if not self.use_detection_model or self._detection_model is None:
             return detection
         
-        # Run YOLO detection on this frame
-        results = self._detection_model(frame, verbose=False)
+        # Run YOLO detection on this frame (using configured device)
+        results = self._detection_model(frame, verbose=False, device=self.device)
         
         if len(results) > 0 and len(results[0].boxes) > 0:
             h, w = frame.shape[:2]

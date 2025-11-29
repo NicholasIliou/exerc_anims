@@ -151,6 +151,57 @@ def process_video(
     return output_paths
 
 
+def _process_video_worker(
+    video_path: str,
+    output_folder: str,
+    frame_step: int,
+    min_detection_confidence: float,
+    min_tracking_confidence: float,
+    use_yolo: bool,
+    yolo_model: str,
+    yolo_weights: str,
+    device: str,
+    skip_overlay: bool,
+    skip_mocap: bool,
+) -> Dict[str, str]:
+    """
+    Worker function for parallel video processing.
+    
+    Each worker initializes its own models to avoid GPU resource conflicts.
+    This function is called by ProcessPoolExecutor.
+    """
+    # Initialize components in worker process
+    pose_estimator = PoseEstimator(
+        min_detection_confidence=min_detection_confidence,
+        min_tracking_confidence=min_tracking_confidence
+    )
+    equipment_detector = EquipmentDetector(
+        use_detection_model=use_yolo,
+        model_size=yolo_model,
+        weights_path=yolo_weights,
+        device=device
+    )
+    exporter = DataExporter(output_folder)
+    visualizer = Visualizer()
+    
+    try:
+        output_paths = process_video(
+            video_path=video_path,
+            output_folder=output_folder,
+            pose_estimator=pose_estimator,
+            equipment_detector=equipment_detector,
+            exporter=exporter,
+            visualizer=visualizer,
+            frame_step=frame_step,
+            verbose=False,  # Suppress per-video output in workers
+            skip_overlay=skip_overlay,
+            skip_mocap=skip_mocap
+        )
+        return output_paths
+    finally:
+        pose_estimator.close()
+
+
 def main(args: List[str] = None) -> int:
     """
     Main entry point.
@@ -219,10 +270,33 @@ def main(args: List[str] = None) -> int:
         action="store_true",
         help="Skip generating mocap preview video (saves processing time)."
     )
+    parser.add_argument(
+        "--yolo_weights",
+        type=str,
+        default=None,
+        help="Path to local YOLO weights file (avoids network download)."
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "cpu"],
+        help="Compute device: auto (GPU if available), cuda, or cpu. Default: auto"
+    )
+    parser.add_argument(
+        "--workers", "-w",
+        type=int,
+        default=1,
+        help="Number of parallel workers for processing multiple videos. Default: 1 (sequential)."
+    )
     
     parsed_args = parser.parse_args(args)
     
     verbose = not parsed_args.quiet
+    
+    # Detect compute device
+    from . import detect_device
+    device = detect_device(parsed_args.device)
     
     if verbose:
         print("=" * 60)
@@ -231,6 +305,9 @@ def main(args: List[str] = None) -> int:
         print(f"Input folder:  {parsed_args.input_folder}")
         print(f"Output folder: {parsed_args.output_folder}")
         print(f"Frame step:    {parsed_args.frame_step}")
+        print(f"Device:        {device}")
+        if parsed_args.workers > 1:
+            print(f"Workers:       {parsed_args.workers}")
     
     # Initialize components
     try:
@@ -253,31 +330,80 @@ def main(args: List[str] = None) -> int:
     )
     equipment_detector = EquipmentDetector(
         use_detection_model=parsed_args.use_yolo,
-        model_size=parsed_args.yolo_model
+        model_size=parsed_args.yolo_model,
+        weights_path=parsed_args.yolo_weights,
+        device=device
     )
     exporter = DataExporter(parsed_args.output_folder)
     visualizer = Visualizer()
     
-    # Process each video (show overall progress)
+    # Process videos (parallel or sequential)
     results = []
-    for video_path, metadata in tqdm(video_loader, total=len(video_loader), desc="Videos", disable=not verbose):
-        try:
-            output_paths = process_video(
-                video_path=video_path,
-                output_folder=parsed_args.output_folder,
-                pose_estimator=pose_estimator,
-                equipment_detector=equipment_detector,
-                exporter=exporter,
-                visualizer=visualizer,
-                frame_step=parsed_args.frame_step,
-                verbose=verbose,
-                skip_overlay=parsed_args.skip_overlay,
-                skip_mocap=parsed_args.skip_mocap
-            )
-            results.append((video_path, output_paths, None))
-        except Exception as e:
-            print(f"Error processing {video_path}: {e}", file=sys.stderr)
-            results.append((video_path, None, str(e)))
+    
+    if parsed_args.workers > 1 and len(video_loader) > 1:
+        # Parallel processing using multiprocessing
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        import multiprocessing
+        
+        # For parallel processing, we need to process videos in separate processes
+        # Each process will initialize its own pose estimator and equipment detector
+        # to avoid GPU resource conflicts
+        
+        if verbose:
+            print(f"\nProcessing {len(video_loader)} video(s) with {parsed_args.workers} workers...")
+        
+        # Collect video paths
+        video_paths = [vp for vp, _ in video_loader]
+        
+        # Use a process pool - note: each worker will init its own models
+        with ProcessPoolExecutor(max_workers=parsed_args.workers) as executor:
+            futures = {}
+            for video_path in video_paths:
+                future = executor.submit(
+                    _process_video_worker,
+                    video_path,
+                    parsed_args.output_folder,
+                    parsed_args.frame_step,
+                    parsed_args.min_detection_confidence,
+                    parsed_args.min_tracking_confidence,
+                    parsed_args.use_yolo,
+                    parsed_args.yolo_model,
+                    parsed_args.yolo_weights,
+                    device,
+                    parsed_args.skip_overlay,
+                    parsed_args.skip_mocap,
+                )
+                futures[future] = video_path
+            
+            # Collect results with progress bar
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Videos", disable=not verbose):
+                video_path = futures[future]
+                try:
+                    output_paths = future.result()
+                    results.append((video_path, output_paths, None))
+                except Exception as e:
+                    print(f"Error processing {video_path}: {e}", file=sys.stderr)
+                    results.append((video_path, None, str(e)))
+    else:
+        # Sequential processing (original behavior)
+        for video_path, metadata in tqdm(video_loader, total=len(video_loader), desc="Videos", disable=not verbose):
+            try:
+                output_paths = process_video(
+                    video_path=video_path,
+                    output_folder=parsed_args.output_folder,
+                    pose_estimator=pose_estimator,
+                    equipment_detector=equipment_detector,
+                    exporter=exporter,
+                    visualizer=visualizer,
+                    frame_step=parsed_args.frame_step,
+                    verbose=verbose,
+                    skip_overlay=parsed_args.skip_overlay,
+                    skip_mocap=parsed_args.skip_mocap
+                )
+                results.append((video_path, output_paths, None))
+            except Exception as e:
+                print(f"Error processing {video_path}: {e}", file=sys.stderr)
+                results.append((video_path, None, str(e)))
     
     # Cleanup
     pose_estimator.close()
